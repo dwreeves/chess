@@ -100,26 +100,6 @@ class Grid(object):
         return [self._loc(i) for i in range(len(self))]
 
 
-def _add_two_tuples(x, y):
-    return x[0] + y[0], x[1] + y[1]
-
-
-def _charnum_to_num(s: str) -> Tuple[int, int]:
-    return ord(s[0].lower()) - 97, int(s[1:]) - 1
-
-
-def _num_to_charnum(s: Tuple[int, int]) -> str:
-    return f'{string.ascii_lowercase[s[0]]}{s[1] + 1}'
-
-
-def add_vector_to_point(point, vector):
-    if isinstance(point, str):
-        point = _charnum_to_num(point)
-        return _num_to_charnum(_add_two_tuples(point, vector))
-    else:
-        return _add_two_tuples(point, vector)
-
-
 class CharNumGrid(Grid):
 
     def __init__(self, x: int, y: int):
