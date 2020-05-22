@@ -1,7 +1,8 @@
-from .grid import CharNumGrid
+from .config import get_option
+from .grid import CharNumGrid, Loc, Vector
 from .pieces import ChessPiece, Rook, Knight, Bishop, Pawn, Queen, King
 import string
-from typing import Optional
+from typing import Optional, List
 
 
 def _tile_repr(s: Optional[ChessPiece], blank: str = ' ') -> str:
@@ -22,7 +23,7 @@ class ChessBoard(CharNumGrid):
         self._set_up_pieces()
 
     def _set_up_pieces(self):
-        if not self.empty:
+        if not self.is_empty:
             raise ValueError('Cannot set up the pieces because the chess board '
                              'is not empty!')
         for rank, color in zip([1, 8], ['white', 'black']):
@@ -49,43 +50,97 @@ class ChessBoard(CharNumGrid):
     def whose_turn(self):
         return 'white' if self.moves % 2 == 0 else 'black'
 
-    def move(self, loc, to, **kwargs):
+    def move(self, to: str, **kwargs) -> 'ChessBoard':
         if kwargs:
             raise TypeError('move() got an unexpected keyword argument '
                             f'{list(kwargs)[0].__repr__()}')
-        super().move(loc, to, overwrite=True)
+        loc = 'e3'
+        return super().move(loc, to, overwrite=True)
 
     @property
     def _oriented(self):
         return list(reversed(list(map(list, zip(*self._mat)))))
 
     def __repr__(self):
-        return self._big_repr_()
+        out_styles = {
+            'big': self._big_repr_,
+            'medium': self._medium_repr_,
+            'small': self._small_repr_
+        }
+        return out_styles[get_option('display.size')]()
 
     def _big_repr_(self):
-        top_delimit = '┌' + ('───┬' * 7) + '───┐'
-        middle_delimit = '├' + ('───┼' * 7) + '───┤'
-        bottom_delimit = '└' + ('───┴' * 7) + '───┘'
+        prefix = '   ' if get_option('display.axis_labels') else ''
+        top_delimit = prefix + '┌' + ('───┬' * 7) + '───┐'
+        middle_delimit = prefix + '├' + ('───┼' * 7) + '───┤'
+        bottom_delimit = prefix + '└' + ('───┴' * 7) + '───┘'
+        if get_option('display.axis_labels'):
+            bottom_delimit += \
+                '\n     ' + '   '.join(iter('abcdefgh')) + '  '
+
         rows = [
-            '│ ' + ' │ '.join([_tile_repr(tile) for tile in rank]) + ' │'
-            for rank in self._oriented
+            (
+                (
+                    f' {str(rank_num)} '
+                    if get_option('display.axis_labels')
+                    else ''
+                )
+                + '│ '
+                + ' │ '.join([_tile_repr(tile) for tile in rank])
+                + ' │'
+            )
+            for rank, rank_num
+            in zip(self._oriented, reversed(range(1, 9)))
         ]
         body = f'\n{middle_delimit}\n'.join(rows)
         return f'{top_delimit}\n{body}\n{bottom_delimit}'
 
-    def _med_repr_(self):
-        top_delimit = '┌' + ('─┬' * 7) + '─┐'
-        middle_delimit = '├' + ('─┼' * 7) + '─┤'
-        bottom_delimit = '└' + ('─┴' * 7) + '─┘'
+    def _medium_repr_(self):
+        prefix = '   ' if get_option('display.axis_labels') else ''
+        top_delimit = ''.join([prefix, '┌', ('─┬' * 7), '─┐'])
+        middle_delimit = ''.join([prefix, '├', ('─┼' * 7), '─┤'])
+        bottom_delimit = ''.join([prefix, '└', ('─┴' * 7), '─┘'])
+        if get_option('display.axis_labels'):
+            bottom_delimit += \
+                '\n    ' + ' '.join(iter('abcdefgh')) + '  '
         rows = [
-            '│' + '│'.join([_tile_repr(tile) for tile in rank]) + '│'
-            for rank in self._oriented
+            (
+                (
+                    f' {str(rank_num)} '
+                    if get_option('display.axis_labels')
+                    else ''
+                )
+                + '│'
+                + '│'.join([_tile_repr(tile) for tile in rank])
+                + '│'
+            )
+            for rank, rank_num
+            in zip(self._oriented, reversed(range(1, 9)))
         ]
         body = f'\n{middle_delimit}\n'.join(rows)
         return f'{top_delimit}\n{body}\n{bottom_delimit}'
 
     def _small_repr_(self):
         return '\n'.join([
-            ''.join([_tile_repr(tile, blank='·') for tile in rank])
-            for rank in self._oriented
-        ])
+            (f'{rank_num}  ' if get_option('display.axis_labels') else '')
+            + ''.join([_tile_repr(tile, blank='·') for tile in rank])
+            for rank, rank_num in zip(self._oriented,
+                                      map(str, reversed(range(1, 9))))
+        ]) + '\n\n   abcdefgh' if get_option('display.axis_labels') else ''
+
+    def valid_moves_from_loc(self, loc: str) -> List[str]:
+        if not isinstance(self[loc], ChessPiece):
+            return []
+        return [
+            (Loc.from_charnum(loc) + shift).charnum
+            for shift
+            in self[loc].shift_patterns
+        ]
+
+    def valid_moves_to_loc(self, loc: str) -> List[str]:
+        # TODO: Add most of the game logic here.
+        return [
+            tile
+            for tile in self.positions
+            if (loc in self.valid_moves_from_loc(tile))
+        ]
