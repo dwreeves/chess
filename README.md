@@ -10,4 +10,5 @@ Things missing other than docstrings and unit-tests:
 - En passant
 - Check
 - Checkmate
+- True algebraic notation
 - Turns
