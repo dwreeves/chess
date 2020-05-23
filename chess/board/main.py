@@ -24,6 +24,7 @@ class InvalidMove(Exception):
 
 class ChessBoard(ChessReprMixin, CharNumGrid):
     _moves = 0
+    _winner = None
 
     def __init__(self, setup: bool = True):
         super().__init__(8, 8)
@@ -35,6 +36,7 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
 
     def restart_game(self):
         self._moves = 0
+        self._winner = None
         self.clear()
         for rank, color in zip([1, 8], ['white', 'black']):
             self[f'a{rank}'] = Rook(color)
@@ -51,6 +53,15 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
 
         for file_ in string.ascii_lowercase[:8]:
             self[f'{file_}7'] = Pawn('black')
+
+    @property
+    def winner(self) -> Optional[str]:
+        if self._winner:
+            return self._winner
+        for color in ['white', 'black']:
+            if self.player_in_checkmate(color):
+                return color
+        return None
 
     def find_piece_locs(
             self,
@@ -70,9 +81,9 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
 
     def move(self, s: str):
         if s.find(' ') > 0:
-            move_list = s.split(' ')
+            move_list = s.replace('.', '. ').split(' ')
             for m in move_list:
-                if re.match('[0-9]+\.', m):
+                if re.match('[0-9]+\.', m) or m == '':
                     continue
                 self.move(m)
             return self
@@ -99,6 +110,10 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
     def whose_turn(self):
         return 'white' if self.moves % 2 == 0 else 'black'
 
+    @property
+    def whose_turn_it_isnt(self):
+        return 'black' if self.moves % 2 == 0 else 'white'
+
     def move_from_to(
             self,
             loc: str,
@@ -114,6 +129,9 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
         res = super().move_from_to(loc, to, overwrite=True)
         self[to].has_moved = True
         self._moves += 1
+        if check_if_valid:
+            if self.player_in_checkmate(self.whose_turn):
+                self._winner = self.whose_turn_it_isnt
         return res
 
     def valid_moves_from_loc(
@@ -151,6 +169,19 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
             )
         ]
 
+    def all_valid_moves(self) -> list:
+        return [
+            (loc, move)
+            for loc in self.positions
+            for move in self.valid_moves_from_loc(loc)
+        ]
+
+    def player_in_checkmate(self, color: str) -> bool:
+        if self.player_in_check(color):
+            if not self.all_valid_moves():
+                return True
+        return False
+
     def player_in_check(self, color: str) -> bool:
         for tile, loc in zip(self, self.positions):
             if isinstance(tile, King) and tile.color == color:
@@ -167,6 +198,9 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
         valid_before_check = self._valid_move(loc, to)
         if (not valid_before_check) or (not look_for_check):
             return valid_before_check
+        # If it's not the player's turn, they can't move!
+        if self.whose_turn != self[loc].color:
+            return False
         player = self[loc].color
         cb = self.copy()
         cb.move_from_to(loc=loc, to=to, check_if_valid=False)
@@ -176,9 +210,6 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
         # TODO: add castling
         # If there is no piece in `loc`, there's nothing to be moved.
         if self[loc] is None:
-            return False
-        # If it's not the player's turn, they can't move!
-        if self.whose_turn != self[loc].color:
             return False
         # Weed out invalid `to` locations.
         try:
