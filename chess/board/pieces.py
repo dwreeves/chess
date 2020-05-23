@@ -109,13 +109,14 @@ class King(ChessPiece):
         Vector(x=x, y=y)
         for x in [-2, 1, 0, -1, 2]
         for y in [1, 0, -1]
-        if (x != 0 and y != 0) or not (x == 2 and y != 0)
+        if (Vector(x=x, y=y).norm_linf == 1) or (abs(x) == 2 and y == 0)
     ]
 
+    @property
     def shift_patterns(self):
         return [
             i for i in self._shift_patterns
-            if abs(self.x) <= 1 or not self.has_moved
+            if abs(i.x) <= 1 or not self.has_moved
         ]
 
 
@@ -130,3 +131,7 @@ class Knight(ChessPiece):
     ]
 
 
+PIECE_TYPES = {}
+for piece in {Pawn, Rook, Queen, King, Bishop, Rook, Knight}:
+    PIECE_TYPES[piece.__name__.lower()] = piece
+    PIECE_TYPES[piece._char] = piece

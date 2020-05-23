@@ -122,16 +122,14 @@ class Grid(object):
         return '\n'.join([str(i) for i in self._mat])
 
     def __iter__(self):
+        self._idx = -1
         return self
 
     def _loc(self, val: int) -> Loc:
         return Loc(val // self.dimensions[0], val % self.dimensions[1])
 
     def __next__(self):
-        try:
-            self._idx += 1
-        except AttributeError:
-            self._idx = 0
+        self._idx += 1
         if self._idx >= len(self):
             raise StopIteration
         return self[self._loc(self._idx)]

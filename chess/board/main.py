@@ -1,9 +1,21 @@
 from .grid import CharNumGrid, Loc, Vector, decompose
-from .pieces import ChessPiece, Rook, Knight, Bishop, Pawn, Queen, King
+from .pieces import (
+    ChessPiece, Rook, Knight, Bishop, Pawn, Queen, King, PIECE_TYPES
+)
 from .display import ChessReprMixin
 import string
-from typing import List
+import re
+from typing import List, Optional
+from copy import deepcopy
 # TODO: upgrade to python3.8 for singledispatchmethod on `valid_move`?
+
+
+def valid_move_notation(s: str) -> bool:
+    return bool(re.match(
+        '([BKNQR]?(([a-h])|([a-h][1-8]))?[x]?[a-h][1-8])'
+        '|([a-h][1|8]=[BKNQR])[+]?',
+        s
+    ))
 
 
 class InvalidMove(Exception):
@@ -18,17 +30,20 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
         if setup:
             self.restart_game()
 
+    def copy(self):
+        return deepcopy(self)
+
     def restart_game(self):
         self._moves = 0
         self.clear()
         for rank, color in zip([1, 8], ['white', 'black']):
             self[f'a{rank}'] = Rook(color)
-            self[f'b{rank}'] = Bishop(color)
-            self[f'c{rank}'] = Knight(color)
+            self[f'b{rank}'] = Knight(color)
+            self[f'c{rank}'] = Bishop(color)
             self[f'd{rank}'] = Queen(color)
             self[f'e{rank}'] = King(color)
-            self[f'f{rank}'] = Knight(color)
-            self[f'g{rank}'] = Bishop(color)
+            self[f'f{rank}'] = Bishop(color)
+            self[f'g{rank}'] = Knight(color)
             self[f'h{rank}'] = Rook(color)
 
         for file_ in string.ascii_lowercase[:8]:
@@ -36,6 +51,45 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
 
         for file_ in string.ascii_lowercase[:8]:
             self[f'{file_}7'] = Pawn('black')
+
+    def find_piece_locs(
+            self,
+            piece_name: Optional[str] = None,
+            color: Optional[str] = None
+    ) -> List[str]:
+        def filter_func(piece: ChessPiece):
+            if piece is None:
+                return False
+            res = True
+            if piece_name:
+                res = res and isinstance(piece, PIECE_TYPES[piece_name])
+            if color:
+                res = res and piece.color == color
+            return res
+        return [loc for loc in self.positions if filter_func(self[loc])]
+
+    def move(self, s: str):
+        if s.find(' ') > 0:
+            move_list = s.split(' ')
+            for m in move_list:
+                if re.match('[0-9]+\.', m):
+                    continue
+                self.move(m)
+            return self
+        if not valid_move_notation(s):
+            raise InvalidMove('Cannot parse the input as a valid move.')
+        regex = re.match('.*?([BKNQR]?)[x]?([a-h][1-8])[^a-h1-8]*$', s)
+        piece = regex[1] or 'pawn'
+        to = regex[2]
+        valid_pieces = self.find_piece_locs(piece_name=piece,
+                                            color=self.whose_turn)
+        valid_move = self.valid_moves_to_loc(to, from_subset=valid_pieces)
+        if len(valid_move) == 1:
+            return self.move_from_to(valid_move[0], to)
+        if len(valid_move) == 0:
+            raise InvalidMove('No pieces can move to that point.')
+        else:
+            raise ValueError('Not sure what happened.')
 
     @property
     def moves(self):
@@ -45,39 +99,86 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
     def whose_turn(self):
         return 'white' if self.moves % 2 == 0 else 'black'
 
-    def move_from_to(self, loc: str, to: str, **kwargs) -> 'ChessBoard':
+    def move_from_to(
+            self,
+            loc: str,
+            to: str,
+            check_if_valid: bool = True,
+            **kwargs
+    ) -> 'ChessBoard':
         if kwargs:
             raise TypeError('move() got an unexpected keyword argument '
                             f'{list(kwargs)[0].__repr__()}')
-        if not self.valid_move(loc, to):
+        if check_if_valid and not self.valid_move(loc, to):
             raise InvalidMove(f'{loc} to {to} is an invalid move.')
         res = super().move_from_to(loc, to, overwrite=True)
         self[to].has_moved = True
+        self._moves += 1
         return res
 
-    def valid_moves_from_loc(self, loc: str) -> List[str]:
+    def valid_moves_from_loc(
+            self,
+            loc: str,
+            look_for_check: bool = True
+    ) -> List[str]:
         if not isinstance(self[loc], ChessPiece):
             return []
         return [
             (Loc.from_charnum(loc) + shift).charnum
             for shift
             in self[loc].shift_patterns
-            if self.valid_move(loc, (Loc.from_charnum(loc) + shift).charnum)
+            if self.valid_move(loc,
+                               (Loc.from_charnum(loc) + shift).charnum,
+                               look_for_check=look_for_check)
         ]
 
-    def valid_moves_to_loc(self, loc: str) -> List[str]:
+    def valid_moves_to_loc(
+            self,
+            loc: str,
+            look_for_check: bool = True,
+            from_subset: list = None
+    ) -> List[str]:
         # TODO: Add most of the game logic here.
+        from_subset = from_subset or self.positions
         return [
             tile
             for tile in self.positions
-            if (loc in self.valid_moves_from_loc(tile))
+            if (
+                (loc in self.valid_moves_from_loc(
+                    tile, look_for_check=look_for_check)
+                 )
+                and tile in from_subset
+            )
         ]
 
-    def valid_move(self, loc: str, to: str) -> bool:
-        # TODO: add castling
+    def player_in_check(self, color: str) -> bool:
+        for tile, loc in zip(self, self.positions):
+            if isinstance(tile, King) and tile.color == color:
+                return len(
+                    self.valid_moves_to_loc(loc, look_for_check=False)
+                ) > 0
 
+    def valid_move(
+            self,
+            loc: str,
+            to: str,
+            look_for_check: bool = True
+    ) -> bool:
+        valid_before_check = self._valid_move(loc, to)
+        if (not valid_before_check) or (not look_for_check):
+            return valid_before_check
+        player = self[loc].color
+        cb = self.copy()
+        cb.move_from_to(loc=loc, to=to, check_if_valid=False)
+        return not cb.player_in_check(player)
+
+    def _valid_move(self, loc: str, to: str) -> bool:
+        # TODO: add castling
         # If there is no piece in `loc`, there's nothing to be moved.
         if self[loc] is None:
+            return False
+        # If it's not the player's turn, they can't move!
+        if self.whose_turn != self[loc].color:
             return False
         # Weed out invalid `to` locations.
         try:
