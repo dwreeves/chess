@@ -1,10 +1,13 @@
-from typing import Iterable, Any, Tuple, NamedTuple
+"""Affine field maths; no references to chess (except in this docstring)"""
+from typing import Iterable, Any, Tuple, NamedTuple, List
 import string
+import math
+from .utils import sign
 
 
 class Loc(NamedTuple):
-    x: int
-    y: int
+    x: int = 0
+    y: int = 0
 
     @property
     def charnum(self) -> str:
@@ -14,10 +17,29 @@ class Loc(NamedTuple):
     def from_charnum(cls, charnum: str):
         return cls(ord(charnum[0].lower()) - 97, int(charnum[1:]) - 1)
 
+    def __sub__(self, other):
+        return Vector(self.x - other.x, self.y - other.y)
+
 
 class Vector(NamedTuple):
     x: int = 0
     y: int = 0
+
+    @property
+    def unit_l1(self):
+        return self.__class__(x=sign(self.x), y=sign(self.y))
+
+    @property
+    def norm_linf(self):
+        return max(abs(self.x), abs(self.y))
+
+    @property
+    def unit_l2(self):
+        return self / self.norm_l2
+
+    @property
+    def norm_l2(self) -> float:
+        return math.sqrt((self.x ** 2) + (self.y ** 2))
 
     def __add__(self, other):
         return other.__class__(other.x + self.x, other.y + self.y)
@@ -28,6 +50,15 @@ class Vector(NamedTuple):
         else:
             return self.__add__(other)
 
+    def __truediv__(self, other):
+        return self.__class__(self.x / other, self.y / other)
+
+    def __mul__(self, other):
+        return self.__class__(self.x * other, self.y * other)
+
+    def __rmul__(self, other):
+        return self.__class__(self.x * other, self.y * other)
+
 
 class Grid(object):
 
@@ -35,9 +66,13 @@ class Grid(object):
         self._mat = [[None for i in range(x)] for j in range(y)]
 
     def __getitem__(self, key: tuple):
+        if key[0] < 0 or key[1] < 0:
+            raise IndexError('Must use non-negative integers in index.')
         return self._mat[key[0]][key[1]]
 
     def __setitem__(self, key: tuple, val: Any):
+        if key[0] < 0 or key[1] < 0:
+            raise IndexError('Must use non-negative integers in index.')
         self._mat[key[0]][key[1]] = val
 
     def __len__(self):
@@ -48,7 +83,7 @@ class Grid(object):
     def dimensions(self) -> Tuple[int, int]:
         return len(self._mat), len(self._mat[0])
 
-    def move(
+    def move_from_to(
             self,
             loc: Any,
             to: Any,
@@ -60,8 +95,14 @@ class Grid(object):
             raise ValueError(f'Location {tuple(to)} is not empty.')
         return self
 
+    def peek(self, loc: Loc, amount: Vector):
+        return self[loc + amount]
+
     def shift(self, loc: Loc, amount: Vector, **kwargs):
-        return self.move(Loc(*loc), Loc(*loc) + Vector(*amount), **kwargs)
+        return self.move_from_to(
+            Loc(*loc), Loc(*loc) + Vector(*amount),
+            **kwargs
+        )
 
     def clear(self):
         for i in range(self.dimensions[0]):
@@ -127,3 +168,15 @@ class CharNumGrid(Grid):
 
     def _loc(self, val: int) -> str:
         return super()._loc(val).charnum
+
+    def peek(self, loc: str, amount: Vector):
+        if isinstance(loc, tuple):
+            return super().peek(loc, amount)
+        else:
+            return super().peek(Loc.from_charnum(loc), amount)
+
+
+def decompose(vector: Vector) -> List[Vector]:
+    if abs(vector.x) != abs(vector.y) and vector.x != 0 and vector.y != 0:
+        raise ValueError
+    return [vector.unit_l1 * i for i in range(1, vector.norm_linf + 1)]

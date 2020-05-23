@@ -1,5 +1,5 @@
 from typing import List, Optional
-from .grid import Vector
+from .grid import Vector, decompose
 from .config import get_option
 from .utils import sign
 
@@ -13,6 +13,7 @@ class ChessPiece(object):
 
     def __init__(self, color):
         self.color = color
+        self.has_moved = False
 
     @property
     def color(self):
@@ -63,7 +64,13 @@ class Pawn(ChessPiece):
 
     @property
     def shift_patterns(self):
-        return [i for i in self._shift_patterns if sign(i.y) == self._direction]
+        return [
+            i for i in self._shift_patterns
+            if (
+                sign(i.y) == self._direction
+                and (abs(i.y) <= 1 or not self.has_moved)
+            )
+        ]
 
 
 class Rook(ChessPiece):
@@ -105,6 +112,12 @@ class King(ChessPiece):
         if (x != 0 and y != 0) or not (x == 2 and y != 0)
     ]
 
+    def shift_patterns(self):
+        return [
+            i for i in self._shift_patterns
+            if abs(self.x) <= 1 or not self.has_moved
+        ]
+
 
 class Knight(ChessPiece):
     _char = 'N'
@@ -115,3 +128,5 @@ class Knight(ChessPiece):
         for y in [1, 2, -1, -2]
         if abs(x) != abs(y)
     ]
+
+

@@ -33,12 +33,12 @@ class TestGrid(unittest.TestCase):
         self.grid.clear()
         self.assertEqual(self.grid[0, 4], None)
 
-    def test_move(self):
-        self.grid.move([0, 4], [6, 6])
+    def test_move_from_to(self):
+        self.grid.move_from_to([0, 4], [6, 6])
         self.assertEqual(self.grid[6, 6], 'foo')
 
-    def test_move_with_loc(self):
-        self.grid.move(Loc(0, 4), Loc(6, 6))
+    def test_move_from_to_with_loc(self):
+        self.grid.move_from_to(Loc(0, 4), Loc(6, 6))
         self.assertEqual(self.grid[6, 6], 'foo')
 
     def test_dimensions(self):

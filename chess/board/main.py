@@ -1,15 +1,16 @@
-from .config import get_option
-from .grid import CharNumGrid, Loc, Vector
+from .grid import CharNumGrid, Loc, Vector, decompose
 from .pieces import ChessPiece, Rook, Knight, Bishop, Pawn, Queen, King
+from .display import ChessReprMixin
 import string
-from typing import Optional, List
+from typing import List
+# TODO: upgrade to python3.8 for singledispatchmethod on `valid_move`?
 
 
-def _tile_repr(s: Optional[ChessPiece], blank: str = ' ') -> str:
-    return blank if s is None else s.char
+class InvalidMove(Exception):
+    pass
 
 
-class ChessBoard(CharNumGrid):
+class ChessBoard(ChessReprMixin, CharNumGrid):
     _moves = 0
 
     def __init__(self, setup: bool = True):
@@ -20,12 +21,6 @@ class ChessBoard(CharNumGrid):
     def restart_game(self):
         self._moves = 0
         self.clear()
-        self._set_up_pieces()
-
-    def _set_up_pieces(self):
-        if not self.is_empty:
-            raise ValueError('Cannot set up the pieces because the chess board '
-                             'is not empty!')
         for rank, color in zip([1, 8], ['white', 'black']):
             self[f'a{rank}'] = Rook(color)
             self[f'b{rank}'] = Bishop(color)
@@ -50,83 +45,15 @@ class ChessBoard(CharNumGrid):
     def whose_turn(self):
         return 'white' if self.moves % 2 == 0 else 'black'
 
-    def move(self, to: str, **kwargs) -> 'ChessBoard':
+    def move_from_to(self, loc: str, to: str, **kwargs) -> 'ChessBoard':
         if kwargs:
             raise TypeError('move() got an unexpected keyword argument '
                             f'{list(kwargs)[0].__repr__()}')
-        loc = 'e3'
-        return super().move(loc, to, overwrite=True)
-
-    @property
-    def _oriented(self):
-        return list(reversed(list(map(list, zip(*self._mat)))))
-
-    def __repr__(self):
-        out_styles = {
-            'big': self._big_repr_,
-            'medium': self._medium_repr_,
-            'small': self._small_repr_
-        }
-        return out_styles[get_option('display.size')]()
-
-    def _big_repr_(self):
-        prefix = '   ' if get_option('display.axis_labels') else ''
-        top_delimit = prefix + '┌' + ('───┬' * 7) + '───┐'
-        middle_delimit = prefix + '├' + ('───┼' * 7) + '───┤'
-        bottom_delimit = prefix + '└' + ('───┴' * 7) + '───┘'
-        if get_option('display.axis_labels'):
-            bottom_delimit += \
-                '\n     ' + '   '.join(iter('abcdefgh')) + '  '
-
-        rows = [
-            (
-                (
-                    f' {str(rank_num)} '
-                    if get_option('display.axis_labels')
-                    else ''
-                )
-                + '│ '
-                + ' │ '.join([_tile_repr(tile) for tile in rank])
-                + ' │'
-            )
-            for rank, rank_num
-            in zip(self._oriented, reversed(range(1, 9)))
-        ]
-        body = f'\n{middle_delimit}\n'.join(rows)
-        return f'{top_delimit}\n{body}\n{bottom_delimit}'
-
-    def _medium_repr_(self):
-        prefix = '   ' if get_option('display.axis_labels') else ''
-        top_delimit = ''.join([prefix, '┌', ('─┬' * 7), '─┐'])
-        middle_delimit = ''.join([prefix, '├', ('─┼' * 7), '─┤'])
-        bottom_delimit = ''.join([prefix, '└', ('─┴' * 7), '─┘'])
-        if get_option('display.axis_labels'):
-            bottom_delimit += \
-                '\n    ' + ' '.join(iter('abcdefgh')) + '  '
-        rows = [
-            (
-                (
-                    f' {str(rank_num)} '
-                    if get_option('display.axis_labels')
-                    else ''
-                )
-                + '│'
-                + '│'.join([_tile_repr(tile) for tile in rank])
-                + '│'
-            )
-            for rank, rank_num
-            in zip(self._oriented, reversed(range(1, 9)))
-        ]
-        body = f'\n{middle_delimit}\n'.join(rows)
-        return f'{top_delimit}\n{body}\n{bottom_delimit}'
-
-    def _small_repr_(self):
-        return '\n'.join([
-            (f'{rank_num}  ' if get_option('display.axis_labels') else '')
-            + ''.join([_tile_repr(tile, blank='·') for tile in rank])
-            for rank, rank_num in zip(self._oriented,
-                                      map(str, reversed(range(1, 9))))
-        ]) + '\n\n   abcdefgh' if get_option('display.axis_labels') else ''
+        if not self.valid_move(loc, to):
+            raise InvalidMove(f'{loc} to {to} is an invalid move.')
+        res = super().move_from_to(loc, to, overwrite=True)
+        self[to].has_moved = True
+        return res
 
     def valid_moves_from_loc(self, loc: str) -> List[str]:
         if not isinstance(self[loc], ChessPiece):
@@ -135,6 +62,7 @@ class ChessBoard(CharNumGrid):
             (Loc.from_charnum(loc) + shift).charnum
             for shift
             in self[loc].shift_patterns
+            if self.valid_move(loc, (Loc.from_charnum(loc) + shift).charnum)
         ]
 
     def valid_moves_to_loc(self, loc: str) -> List[str]:
@@ -144,3 +72,45 @@ class ChessBoard(CharNumGrid):
             for tile in self.positions
             if (loc in self.valid_moves_from_loc(tile))
         ]
+
+    def valid_move(self, loc: str, to: str) -> bool:
+        # TODO: add castling
+
+        # If there is no piece in `loc`, there's nothing to be moved.
+        if self[loc] is None:
+            return False
+        # Weed out invalid `to` locations.
+        try:
+            self[to]
+        except IndexError:
+            return False
+        # All hypothetically possible shift patterns are accounted for in the
+        # `.shift_patterns` property of a piece.
+        in_shift_patterns = (Loc.from_charnum(to) - Loc.from_charnum(loc)) \
+                            in self[loc].shift_patterns
+        if not in_shift_patterns:
+            return False
+        # For knights, the only requirement is the square is either empty or
+        # off-color.
+        shift = Loc.from_charnum(to) - Loc.from_charnum(loc)
+        if isinstance(self[loc], Knight):
+            return self[to] is None or self[to].color != self[loc].color
+        # Pawns can only capture diagonally
+        if isinstance(self[loc], Pawn) and abs(shift.x) == 1:
+            # TODO: Add en passant
+            return self[to] is not None and self[to].color != self[loc].color
+        # For everyone else, the move must be decomposed.
+        components = decompose(shift)
+        for i, step in enumerate(components):
+            loc_step = self.peek(loc, step)
+            if loc_step is not None:
+                # Pawns moving straight cannot capture.
+                if isinstance(self[loc], Pawn) and step.x == 0:
+                    return False
+                elif i + 1 == len(components):
+                    return self[to] is None or self[to].color != self[loc].color
+                else:
+                    return False
+        else:
+            return self[to] is None or self[to].color != self[loc].color
+
