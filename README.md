@@ -18,5 +18,5 @@ Things missing other than docstrings and more unit-tests:
 From the root directory, run:
 
 ```shell script
-python -m unittest discover -p 'chess/board/tests/`
+python -m unittest discover -p 'chess/board/tests/'
 ```

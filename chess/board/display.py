@@ -2,8 +2,6 @@ from .grid import CharNumGrid
 from .config import get_option
 from .pieces import ChessPiece
 from typing import Optional, List
-from functools import partial
-import re
 
 
 def _tile_repr(
