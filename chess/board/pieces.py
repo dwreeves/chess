@@ -4,6 +4,7 @@ from .config import get_option
 from .utils import sign
 
 ONE_THRU_SEVEN = [*range(-7, 0, 1), *range(1, 8)]
+ALL_COLORS = {'white', 'black'}
 
 
 class ChessPiece(object):
@@ -26,9 +27,13 @@ class ChessPiece(object):
         the moves are legal."""
         return self._shift_patterns
 
+    def reverse_shifts(self, capture: Optional[bool] = None):
+        """For all except Pawn, reverse shifts are the same as shifts."""
+        return self._shift_patterns
+
     @color.setter
     def color(self, val):
-        if val not in ['white', 'black']:
+        if val not in ALL_COLORS:
             raise TypeError('Pieces must be either white or black.')
         self._color = val
 
@@ -71,6 +76,12 @@ class Pawn(ChessPiece):
                 and (abs(i.y) <= 1 or not self.has_moved)
             )
         ]
+
+    def reverse_shifts(self, capture: bool = False):
+        if capture:
+            return [i.reverse for i in self.shift_patterns if i.x != 0]
+        else:
+            return [i.reverse for i in self.shift_patterns if i.x == 0]
 
 
 class Rook(ChessPiece):
@@ -131,7 +142,9 @@ class Knight(ChessPiece):
     ]
 
 
-PIECE_TYPES = {}
+PIECE_NAME_TO_TYPE = {}
 for piece in {Pawn, Rook, Queen, King, Bishop, Rook, Knight}:
-    PIECE_TYPES[piece.__name__.lower()] = piece
-    PIECE_TYPES[piece._char] = piece
+    PIECE_NAME_TO_TYPE[piece.__name__.lower()] = piece
+    PIECE_NAME_TO_TYPE[piece._char] = piece
+
+ALL_PIECES = set(PIECE_NAME_TO_TYPE.values())

@@ -1,40 +1,76 @@
-from .grid import CharNumGrid, Loc, Vector, decompose
-from .pieces import (
-    ChessPiece, Rook, Knight, Bishop, Pawn, Queen, King, PIECE_TYPES
-)
-from .display import ChessReprMixin
-import string
 import re
-from typing import List, Optional
+from typing import List, Optional, NamedTuple, Type
 from copy import deepcopy
 # TODO: upgrade to python3.8 for singledispatchmethod on `valid_move`?
 
+from .grid import CharNumGrid, Loc, Vector, decompose
+from .pieces import (
+    ChessPiece, Rook, Knight, Bishop, Pawn, Queen, King,
+    PIECE_NAME_TO_TYPE, ALL_PIECES, ALL_COLORS
+)
+from .display import repr_grid
+from .config import get_option
 
-def valid_move_notation(s: str) -> bool:
-    return bool(re.match(
-        '([BKNQR]?(([a-h])|([a-h][1-8]))?[x]?[a-h][1-8])'
-        '|([a-h][1|8]=[BKNQR])[+]?',
-        s
-    ))
+# Note: this regex doesn't check by itself for invalid inputs; e.g. pawn
+# promotions only happen on 1 or 8, but this won't check for that.
+valid_move_regex = re.compile('''
+    ^
+    ([BKNQR])?          # 0- Piece name that is being moved.
+    ([a-h])?            # 1- File of piece being moved.
+    ([1-8])?            # 2- Rank of piece being moved.
+    ([x]?)              # 3- Was the piece captured? 'x' if yes.
+    ([a-h][1-8])        # 4- Spot being moved to.
+    (?:=([BKNQR]))?     # 5- Pawn promotion.
+    ([+#])?             # 6- Check or checkmate.
+    (?:[?!]{0,2})       # Annotation (not captured)
+    $
+''', re.VERBOSE)
 
 
 class InvalidMove(Exception):
     pass
 
 
-class ChessBoard(ChessReprMixin, CharNumGrid):
+class MoveAttributes(NamedTuple):
+    piece_to_move: Type
+    move_from_file: Optional[str]
+    move_from_rank: Optional[str]
+    capture: bool
+    move_to: str
+    pawn_promotion: Optional[ChessPiece] = None
+    check: Optional[bool] = False
+    checkmate: Optional[bool] = False
+
+
+def parse_move(m: str) -> MoveAttributes:
+    regex_move = re.match(valid_move_regex, m)
+    if not regex_move:
+        raise InvalidMove('This move is not proper algebraic notation.')
+    return MoveAttributes(
+        piece_to_move=PIECE_NAME_TO_TYPE.get(regex_move[1], Pawn),
+        move_from_file=regex_move[2],
+        move_from_rank=regex_move[3],
+        capture=(regex_move[4] == 'x'),
+        move_to=regex_move[5],
+        pawn_promotion=PIECE_NAME_TO_TYPE.get(regex_move[6]),
+        check=(regex_move[7] == '+'),
+        checkmate=(regex_move[7] == '#')
+    )
+
+
+class ChessBoard(CharNumGrid):
     _moves = 0
     _winner = None
 
-    def __init__(self, setup: bool = True):
+    def __init__(self, setup: bool = True) -> None:
         super().__init__(8, 8)
         if setup:
             self.restart_game()
 
-    def copy(self):
+    def copy(self) -> 'ChessBoard':
         return deepcopy(self)
 
-    def restart_game(self):
+    def restart_game(self) -> None:
         self._moves = 0
         self._winner = None
         self.clear()
@@ -48,10 +84,10 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
             self[f'g{rank}'] = Knight(color)
             self[f'h{rank}'] = Rook(color)
 
-        for file_ in string.ascii_lowercase[:8]:
+        for file_ in 'abcdefgh':
             self[f'{file_}2'] = Pawn('white')
 
-        for file_ in string.ascii_lowercase[:8]:
+        for file_ in 'abcdefgh':
             self[f'{file_}7'] = Pawn('black')
 
     @property
@@ -73,13 +109,15 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
                 return False
             res = True
             if piece_name:
-                res = res and isinstance(piece, PIECE_TYPES[piece_name])
+                res = res and isinstance(piece, PIECE_NAME_TO_TYPE[piece_name])
             if color:
                 res = res and piece.color == color
             return res
+
         return [loc for loc in self.positions if filter_func(self[loc])]
 
     def move(self, s: str):
+        # If space, look for multiple moves
         if s.find(' ') > 0:
             move_list = s.replace('.', '. ').split(' ')
             for m in move_list:
@@ -87,31 +125,54 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
                     continue
                 self.move(m)
             return self
-        if not valid_move_notation(s):
-            raise InvalidMove('Cannot parse the input as a valid move.')
-        regex = re.match('.*?([BKNQR]?)[x]?([a-h][1-8])[^a-h1-8]*$', s)
-        piece = regex[1] or 'pawn'
-        to = regex[2]
-        valid_pieces = self.find_piece_locs(piece_name=piece,
-                                            color=self.whose_turn)
-        valid_move = self.valid_moves_to_loc(to, from_subset=valid_pieces)
-        if len(valid_move) == 1:
-            return self.move_from_to(valid_move[0], to)
-        if len(valid_move) == 0:
+        # Get information from the input about the move
+        move_attr = parse_move(s)
+        # Identify the subset of all possible starting positions.
+        possible_starts = [
+            (Loc.from_charnum(move_attr.move_to) + i).charnum
+            for i
+            in (
+                move_attr
+                .piece_to_move(self.whose_turn)
+                .reverse_shifts(capture=move_attr.capture)
+            )
+        ]
+        # Filter based on rank and/or file if it was passed:
+        if move_attr.move_from_file:
+            possible_starts = list(filter(
+                lambda x: x.find(move_attr.move_from_file) >= 0,
+                possible_starts
+            ))
+        if move_attr.move_from_rank:
+            possible_starts = list(filter(
+                lambda x: x.find(move_attr.move_from_rank) >= 0,
+                possible_starts
+            ))
+        # Filter those possible starts based on the board state.
+        if len(possible_starts) > 1:
+            possible_starts = self.filter(
+                color=self.whose_turn,
+                piece_type=move_attr.piece_to_move,
+                tile_subset=possible_starts
+            )
+
+        if len(possible_starts) == 1:
+            return self.move_from_to(possible_starts[0], move_attr.move_to)
+        if len(possible_starts) == 0:
             raise InvalidMove('No pieces can move to that point.')
         else:
             raise ValueError('Not sure what happened.')
 
     @property
-    def moves(self):
+    def moves(self) -> int:
         return self._moves
 
     @property
-    def whose_turn(self):
+    def whose_turn(self) -> str:
         return 'white' if self.moves % 2 == 0 else 'black'
 
     @property
-    def whose_turn_it_isnt(self):
+    def whose_turn_it_isnt(self) -> str:
         return 'black' if self.moves % 2 == 0 else 'white'
 
     def move_from_to(
@@ -150,6 +211,35 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
                                look_for_check=look_for_check)
         ]
 
+    def filter(
+            self,
+            color: Optional[str] = None,
+            piece_type: Optional[Type] = None,
+            tile_subset: Optional[List[str]] = None
+    ):
+        """Get a list of all tiles that have pieces on them and also meet
+        certain criteria."""
+
+        def _filter_func(x: ChessPiece) -> bool:
+            if x is None:
+                return False
+            val = True
+            if color:
+                val = val and x.color == color
+            if piece_type:
+                val = val and isinstance(x, piece_type)
+            return val
+
+        if tile_subset:
+            tile_subset = [i for i in tile_subset if i in self.positions]
+        else:
+            tile_subset = self.positions
+        return [
+            tile
+            for tile in tile_subset
+            if _filter_func(self[tile])
+        ]
+
     def valid_moves_to_loc(
             self,
             loc: str,
@@ -162,10 +252,10 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
             tile
             for tile in self.positions
             if (
-                (loc in self.valid_moves_from_loc(
-                    tile, look_for_check=look_for_check)
-                 )
-                and tile in from_subset
+                    (loc in self.valid_moves_from_loc(
+                        tile, look_for_check=look_for_check)
+                     )
+                    and tile in from_subset
             )
         ]
 
@@ -246,3 +336,23 @@ class ChessBoard(ChessReprMixin, CharNumGrid):
         else:
             return self[to] is None or self[to].color != self[loc].color
 
+    @property
+    def _oriented(self):
+        return list(reversed(list(map(list, zip(*self._mat)))))
+
+    def __repr__(self) -> str:
+        out_styles = {
+            'big': self._repr_big_,
+            'medium': self._repr_medium_,
+            'small': self._repr_small_
+        }
+        return out_styles[get_option('display.size')]()
+
+    def _repr_big_(self) -> str:
+        return repr_grid(self._oriented, 1, True)
+
+    def _repr_medium_(self) -> str:
+        return repr_grid(self._oriented, 0, True)
+
+    def _repr_small_(self) -> str:
+        return repr_grid(self._oriented, 0, False)

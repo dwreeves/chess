@@ -41,6 +41,10 @@ class Vector(NamedTuple):
     def norm_l2(self) -> float:
         return math.sqrt((self.x ** 2) + (self.y ** 2))
 
+    @property
+    def reverse(self):
+        return self.__class__(x=-self.x, y=-self.y)
+
     def __add__(self, other):
         return other.__class__(other.x + self.x, other.y + self.y)
 

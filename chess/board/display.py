@@ -53,11 +53,11 @@ def _axis_labels(s: str, x_padding: int, border: bool) -> str:
     return s
 
 
-def _repr_grid(
+def repr_grid(
         chess_matrix: List[List[ChessPiece]],
         x_padding: int,
         border: bool
-):
+) -> str:
     hborder_char = '─' if border else ''
     vborder_char = '│' if border else ''
     blank_char = ' ' if border else '·'
@@ -79,27 +79,3 @@ def _repr_grid(
     else:
         res = '\n'.join(rows)
     return _axis_labels(res, x_padding=x_padding, border=border)
-
-
-class ChessReprMixin(CharNumGrid):
-
-    @property
-    def _oriented(self):
-        return list(reversed(list(map(list, zip(*self._mat)))))
-
-    def __repr__(self):
-        out_styles = {
-            'big': self._big_repr_,
-            'medium': self._medium_repr_,
-            'small': self._small_repr_
-        }
-        return out_styles[get_option('display.size')]()
-
-    def _big_repr_(self):
-        return _repr_grid(self._oriented, 1, True)
-
-    def _medium_repr_(self):
-        return _repr_grid(self._oriented, 0, True)
-
-    def _small_repr_(self):
-        return _repr_grid(self._oriented, 0, False)
