@@ -178,7 +178,33 @@ class CharNumGrid(Grid):
             return super().peek(Loc.from_charnum(loc), amount)
 
 
+def between(start: str, end: str, exclude_last: bool = False):
+    """Returns half-open interval (excluding start, including end). Only
+    works for locs that share a diagonal, row or column; assumes inputs are
+    valid."""
+    start, end = map(Loc.from_charnum, (start, end))
+    diff_vector = (end - start)
+    unit_vector = diff_vector.unit_l1
+    magnitude = diff_vector.norm_linf
+    i = 0
+    while i < (magnitude - int(exclude_last)):
+        yield (start + (unit_vector * (i + 1))).charnum
+        i += 1
+
+
 def decompose(vector: Vector) -> List[Vector]:
-    if abs(vector.x) != abs(vector.y) and vector.x != 0 and vector.y != 0:
-        raise ValueError
-    return [vector.unit_l1 * i for i in range(1, vector.norm_linf + 1)]
+    unit_vector = vector.unit_l1
+    magnitude = vector.norm_linf
+    i = 0
+    while i < magnitude:
+        yield unit_vector * (i + 1)
+        i += 1
+
+
+def vector_circle(magnitude: int = 1):
+    return [
+        Vector(x=x, y=y) * magnitude
+        for x in [1, 0, -1]
+        for y in [1, 0, -1]
+        if (Vector(x=x, y=y).norm_linf == 1)
+    ]

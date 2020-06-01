@@ -6,13 +6,11 @@ Not done. Just using Github to document the progress.
 
 Things missing other than docstrings and more unit-tests:
 
-- Castling
+- Castling (NOTE: added but not unit-tested.)
 - En passant
 - Pawn promotion
 - Updates to algebraic notation parsing:
   - add option `'api.notation_mismatch'` that can be set to `'warn'` `'error'` or `'ignore'` when captures and checks are not correct in notation.
-- Optimization. API is very slow.
-  - (Some work done on this front, but the main source of slowdown, i.e. checking for check/checkmate, hasn't been solved yet.)
 
 ## Running unit tests:
 
