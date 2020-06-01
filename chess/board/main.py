@@ -268,6 +268,7 @@ class ChessBoard(CharNumGrid):
         self._moves += 1
         self[new_king_loc].has_moved = True
         self[new_rook_loc].has_moved = True
+        self._king_locs[whose_turn] = new_king_loc
         return None
 
     def _get_start_loc_from_move_attr(self, move_attr: MoveAttributes) -> str:
@@ -311,16 +312,25 @@ class ChessBoard(CharNumGrid):
             tile_subset=possible_starts
         )
 
-        # At this point, there should be only one piece remaining.
-        if len(possible_starts) != 1:
-            if len(possible_starts) == 0:
-                raise InvalidMove('No pieces can move to that point.')
-            elif len(possible_starts) >= 2:
-                raise InvalidMove('Ambiguous move.')
-            else:
-                raise ValueError('Not sure what happened.')
-
-        return possible_starts[0]
+        # At this point, there should usually be only one piece remaining.
+        if len(possible_starts) == 1:
+            return possible_starts[0]
+        # If multiple pieces still remain, check among them to see if any are
+        # valid moves.
+        if len(possible_starts) >= 2:
+            possible_starts = [
+                ps
+                for ps in possible_starts
+                if self._valid_move_after_shift_verification(ps,
+                                                             move_attr.move_to)
+            ]
+        # If the len is _still_ ge 2, then we have an error.
+        if len(possible_starts) >= 2:
+            raise InvalidMove('Ambiguous move.')
+        elif len(possible_starts) == 0:
+            raise InvalidMove('No pieces can move to that point.')
+        else:
+            return possible_starts[0]
 
     @property
     def moves(self) -> int:
