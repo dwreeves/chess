@@ -194,7 +194,7 @@ class ChessBoard(CharNumGrid):
         if s.find(' ') > 0:
             move_list = s.replace('.', '. ').split(' ')
             for m in move_list:
-                if re.match('[0-9]+\.', m) or m == '':
+                if re.match('[0-9]+[.]?', m) or m == '':
                     continue
                 self.move(m)
             return self
@@ -216,7 +216,7 @@ class ChessBoard(CharNumGrid):
                                  move_attr.move_to,
                                  attributes=move_attr)
 
-    def move_castle(self, side: str):
+    def move_castle(self, side: str, notifications: Optional[bool] = None):
         """Castling is a special move involving the simultaneous movement of two
         pieces. This method handles ALL the logic of a castle: i.e. it validates
         that the castle is a legal move, performs the movements, and increments
@@ -224,6 +224,8 @@ class ChessBoard(CharNumGrid):
 
         :param side: '0-0', 'O-O', '0-0-0', or 'O-O-O'.
         """
+        if notifications is None:
+            notifications = get_option('api.notifications')
         ROOK_LOCS = {
             'white': {
                 'kingside': 'h1',
@@ -269,6 +271,8 @@ class ChessBoard(CharNumGrid):
         self[new_king_loc].has_moved = True
         self[new_rook_loc].has_moved = True
         self._king_locs[whose_turn] = new_king_loc
+        if notifications:
+            self._notifications()
         return None
 
     def _get_start_loc_from_move_attr(self, move_attr: MoveAttributes) -> str:
@@ -349,7 +353,8 @@ class ChessBoard(CharNumGrid):
             loc: str,
             to: str,
             safe_mode: Optional[bool] = None,
-            attributes: Optional[MoveAttributes] = None
+            attributes: Optional[MoveAttributes] = None,
+            notifications: Optional[bool] = None
     ) -> 'ChessBoard':
         """
 
@@ -372,6 +377,8 @@ class ChessBoard(CharNumGrid):
         #   check or checkmate.
         if safe_mode is None:
             safe_mode = get_option('api.safe_mode')
+        if notifications is None:
+            notifications = get_option('api.notifications')
         if safe_mode:
             if isinstance(attributes, MoveAttributes):
                 valid = self._valid_move_after_shift_verification(loc, to)
@@ -384,12 +391,22 @@ class ChessBoard(CharNumGrid):
         if isinstance(self[to], King):
             self._king_locs[self[to].color] = to
         self._moves += 1
+        if notifications:
+            self._notifications()
         return res
+
+    def _notifications(self):
+        if self.player_in_check(self.whose_turn):
+            if self.player_in_checkmate(self.whose_turn):
+                print(f'{self.whose_turn_it_isnt} wins!')
+            else:
+                print(f'{self.whose_turn} is in check.')
+        elif not self.all_valid_moves(stop_after_first=True):
+            print('The game is a draw.')
 
     def valid_moves_from_loc(
             self,
             loc: str,
-            look_for_check: bool = True
     ) -> List[str]:
         if not isinstance(self[loc], ChessPiece):
             return []
@@ -432,7 +449,6 @@ class ChessBoard(CharNumGrid):
     def valid_moves_to_loc(
             self,
             loc: str,
-            look_for_check: bool = True,
             from_subset: list = None
     ) -> List[str]:
         # TODO: Add most of the game logic here.
@@ -441,23 +457,23 @@ class ChessBoard(CharNumGrid):
             tile
             for tile in self.positions
             if (
-                    (loc in self.valid_moves_from_loc(
-                        tile, look_for_check=look_for_check)
-                     )
-                    and tile in from_subset
+                loc in self.valid_moves_from_loc(tile)
+                and tile in from_subset
             )
         ]
 
-    def all_valid_moves(self) -> list:
-        return [
-            (loc, move)
-            for loc in self.positions
-            for move in self.valid_moves_from_loc(loc)
-        ]
+    def all_valid_moves(self, stop_after_first: bool = False) -> list:
+        li = []
+        for loc in self.positions:
+            for move in self.valid_moves_from_loc(loc):
+                li.append((loc, move))
+                if li and stop_after_first:
+                    return li
+        return li
 
     def player_in_checkmate(self, color: str) -> bool:
         if self.player_in_check(color):
-            if not self.all_valid_moves():
+            if not self.all_valid_moves(stop_after_first=True):
                 return True
         return False
 
@@ -553,7 +569,7 @@ class ChessBoard(CharNumGrid):
         # check or checkmate.
         self_copy = self.copy()
         # CharNumGrid.move_from_to(self_copy, loc, to, overwrite=True)
-        self_copy.move_from_to(loc, to, safe_mode=False)
+        self_copy.move_from_to(loc, to, safe_mode=False, notifications=False)
         if self_copy.player_in_check(self[loc].color):
             return False
         return True

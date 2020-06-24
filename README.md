@@ -6,7 +6,6 @@ Not done. Just using Github to document the progress.
 
 Things missing other than docstrings and more unit-tests:
 
-- Castling (NOTE: added but not unit-tested.)
 - En passant
 - Pawn promotion
 - Updates to algebraic notation parsing:

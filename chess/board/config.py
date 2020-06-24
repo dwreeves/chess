@@ -5,6 +5,7 @@ DEFAULT_OPTIONS = {
     'display.axis_labels': True,
     'display.figurine': False,
     'api.notation_mismatch': 'error',  # 'error', 'warn', or 'ignore'
+    'api.notifications': False,
     'api.safe_mode': True
 }
 
